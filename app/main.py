@@ -20,23 +20,18 @@ def main():
         
         def on_setup_complete(config_data):
             """Called when setup is complete."""
-            # TODO: Open main window after setup
-            print("Setup completed successfully!")
-            app.quit()
-        
+            
         setup_window.setup_complete.connect(on_setup_complete)
         setup_window.show()
     else:
-        print("Configuration found - showing main window")
-        # TODO: Show main UI
-        # from app.ui.main_ui import MainWindow
-        # main_window = MainWindow(config)
-        # main_window.show()
+        from app.ui.main_ui import MainWindow
+        main_window = MainWindow(config)
         
-        # For now, just show loaded config
-        loaded_config = config.load_config()
-        print(f"Loaded config: {loaded_config}")
-        return 0
+        def on_setup_complete_from_edit(config_data):
+            """Handle setup completion when editing from main window."""
+            pass  # Main window handles this internally
+        
+        main_window.show()
     
     return app.exec()
 

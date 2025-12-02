@@ -51,13 +51,14 @@ def generate_lab_sheet(student_name, student_id, module_name, module_code, pract
     add_colored_rectangle(doc)
     
     # Add the university logo (centered from page edges, not margins)
-    logo_paragraph = doc.add_paragraph()
-    logo_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    logo_paragraph.paragraph_format.left_indent = Inches(-0.5)
-    logo_paragraph.paragraph_format.right_indent = Inches(-0.5)
-    logo_run = logo_paragraph.add_run()
-    logo_run.add_picture(logo_path, width=Inches(1.1), height=Inches(1.05))
-    logo_paragraph.paragraph_format.space_after = Pt(6)
+    if logo_path:
+        logo_paragraph = doc.add_paragraph()
+        logo_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        logo_paragraph.paragraph_format.left_indent = Inches(-0.5)
+        logo_paragraph.paragraph_format.right_indent = Inches(-0.5)
+        logo_run = logo_paragraph.add_run()
+        logo_run.add_picture(logo_path, width=Inches(1.1), height=Inches(1.05))
+        logo_paragraph.paragraph_format.space_after = Pt(6)
     
     # Add module name and code (centered from page edges, size 20)
     module_paragraph = doc.add_paragraph()
@@ -76,8 +77,8 @@ def generate_lab_sheet(student_name, student_id, module_name, module_code, pract
     practical_run = practical_paragraph.add_run(f'{practical_number}')
     practical_run.bold = True
     practical_run.font.size = Pt(12)
-    practical_run.font.name = 'Aptos (Body)'
-    practical_paragraph.paragraph_format.space_after = Pt(2)
+    practical_run.font.name = 'Times New Roman'
+    practical_paragraph.paragraph_format.space_after = Pt(0)
     
     # Add student name and ID on next line (size 12, left aligned)
     name_paragraph = doc.add_paragraph()
@@ -85,8 +86,8 @@ def generate_lab_sheet(student_name, student_id, module_name, module_code, pract
     name_run = name_paragraph.add_run(f'{student_name} - {student_id}')
     name_run.bold = True
     name_run.font.size = Pt(12)
-    name_run.font.name = 'Aptos (Body)'
-    name_paragraph.paragraph_format.space_after = Pt(0)
+    name_run.font.name = 'Times New Roman'
+    name_paragraph.paragraph_format.space_after = Pt(6)
     
     # Add the horizontal line (appropriate length)
     line_paragraph = doc.add_paragraph()
