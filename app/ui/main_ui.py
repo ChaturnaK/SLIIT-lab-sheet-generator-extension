@@ -174,7 +174,6 @@ class MainWindow(QMainWindow):
         
         # Module selection
         self.module_combo = QComboBox()
-        self.populate_modules()
         generator_layout.addRow("Select Module:", self.module_combo)
         
         # Practical number
@@ -235,6 +234,9 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.status_label)
         
         central_widget.setLayout(main_layout)
+        
+        # Populate modules after all UI elements are created
+        self.populate_modules()
     
     def update_student_info_display(self):
         """Update the student information display."""
