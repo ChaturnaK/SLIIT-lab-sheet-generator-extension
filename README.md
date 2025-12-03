@@ -34,15 +34,37 @@ A desktop application for university students to generate lab sheet templates au
    python -m app.main
    ```
 
-### Building the Executable
+## Building the Executable
 
 To create a standalone .exe file:
+
+```bash
+# Make sure all dependencies are installed
+pip install -r requirements.txt
+
+# Run the build script
+python build.py
+```
+
+The executable will be created in the `dist/` folder as `LabSheetGenerator.exe`.
+
+### Manual Build (Alternative)
+
+If you prefer to build manually:
 
 ```bash
 pyinstaller --name="LabSheetGenerator" --windowed --onefile app/main.py
 ```
 
-The executable will be in the `dist/` folder.
+### Distribution
+
+The generated `.exe` file is standalone and can be:
+- Copied to any Windows computer
+- Shared with other students
+- Run without Python installation
+- Placed anywhere (Desktop, USB drive, etc.)
+
+**Note**: On first run, users will see the setup wizard to configure their information.
 
 ## Project Structure
 
