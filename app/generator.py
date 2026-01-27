@@ -106,7 +106,7 @@ def generate_lab_sheet(student_name, student_id, module_name, module_code, pract
 if __name__ == '__main__':
     # Hardcoded details - will be replaced with user input later
     student_name = 'NONIS P.K.D.T.'
-    student_id = 'IT23614130'
+    student_id = 'IT12345678'
     module_name = 'Programming Paradigms'
     module_code = 'SE2052'
     practical_number = 'Practical 06'

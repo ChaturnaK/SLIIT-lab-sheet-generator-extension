@@ -28,19 +28,26 @@ class Config:
         """Check if this is the first time running the app."""
         return not self.config_file.exists()
     
-    def save_config(self, student_name, student_id, modules):
+    def _get_default_output_dir(self):
+        """Get the default output directory."""
+        from app.utils.paths import get_output_dir
+        return str(get_output_dir())
+    
+    def save_config(self, student_name, student_id, modules, global_output_path=None):
         """
         Save user configuration to file.
         
         Args:
             student_name: Student's full name
             student_id: Student ID number
-            modules: List of dicts with 'name' and 'code' keys
+            modules: List of dicts with enhanced fields (name, code, sheet_type, etc.)
+            global_output_path: Default output path (optional)
         """
         config_data = {
             'student_name': student_name,
             'student_id': student_id,
-            'modules': modules
+            'modules': modules,
+            'global_output_path': global_output_path or self._get_default_output_dir()
         }
         
         with open(self.config_file, 'w') as f:
@@ -48,7 +55,7 @@ class Config:
     
     def load_config(self):
         """
-        Load user configuration from file.
+        Load user configuration from file with migration for old formats.
         
         Returns:
             dict: Configuration data or None if not found
@@ -58,7 +65,32 @@ class Config:
         
         try:
             with open(self.config_file, 'r') as f:
-                return json.load(f)
+                config = json.load(f)
+            
+            # MIGRATION: Add default values for old config files
+            if 'global_output_path' not in config:
+                config['global_output_path'] = self._get_default_output_dir()
+            
+            # Migrate old module format to new enhanced format
+            for module in config.get('modules', []):
+                # Add sheet_type if missing
+                if 'sheet_type' not in module:
+                    module['sheet_type'] = 'Practical'
+                
+                # Add custom_sheet_type if missing
+                if 'custom_sheet_type' not in module:
+                    module['custom_sheet_type'] = None
+                
+                # Add output_path if missing
+                if 'output_path' not in module:
+                    module['output_path'] = None
+                
+                # Add use_zero_padding if missing
+                if 'use_zero_padding' not in module:
+                    module['use_zero_padding'] = True
+            
+            return config
+            
         except (json.JSONDecodeError, IOError):
             return None
     
