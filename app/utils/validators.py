@@ -59,7 +59,7 @@ def validate_module_name(module_name):
 
 def validate_module_code(module_code):
     """
-    Validate module code.
+    Validate module code with relaxed rules to support various formats.
     
     Args:
         module_code: Module code string
@@ -70,13 +70,20 @@ def validate_module_code(module_code):
     if not module_code or not module_code.strip():
         return False, "Module code cannot be empty"
     
-    # Module codes are typically alphanumeric
     code = module_code.strip()
-    if len(code) < 4:
-        return False, "Module code is too short"
     
-    if not re.match(r'^[A-Z]{2}\d{4}$', code):
-        return False, "Module code should be in format: XX0000 (e.g., SE2052)"
+    # Minimum length check
+    if len(code) < 4:
+        return False, "Module code is too short (minimum 4 characters)"
+    
+    # Maximum length check
+    if len(code) > 10:
+        return False, "Module code is too long (maximum 10 characters)"
+    
+    # More flexible pattern - allows various formats
+    # Examples: SE2052, CSC1234, CS-2052, COMP101, IT-3133, MAT101
+    if not re.match(r'^[A-Z]{2,4}[-]?\d{3,4}$', code, re.IGNORECASE):
+        return False, "Module code format should be like: SE2052, CSC1234, or CS-2052"
     
     return True, ""
 
@@ -93,7 +100,7 @@ def validate_practical_number(practical_num):
     try:
         num = int(practical_num)
         if num < 1 or num > 99:
-            return False, "Practical number should be between 1 and 99"
+            return False, "Sheet number should be between 1 and 99"
         return True, ""
     except (ValueError, TypeError):
-        return False, "Practical number must be a valid number"
+        return False, "Sheet number must be a valid number"
