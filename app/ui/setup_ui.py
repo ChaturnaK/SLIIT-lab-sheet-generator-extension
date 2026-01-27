@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, 
     QPushButton, QFileDialog, QMessageBox, QListWidget, 
-    QDialog, QDialogButtonBox, QFormLayout, QGroupBox
+    QDialog, QDialogButtonBox, QFormLayout, QGroupBox, QComboBox
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap
@@ -12,13 +12,13 @@ from app.utils.validators import (
 
 
 class ModuleDialog(QDialog):
-    """Dialog for adding a new module."""
+    """Dialog for adding/editing a module with enhanced configuration."""
     
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, module_data=None):
         super().__init__(parent)
-        self.setWindowTitle("Add Module")
+        self.setWindowTitle("Add Module" if not module_data else "Edit Module")
         self.setModal(True)
-        self.setMinimumWidth(400)
+        self.setMinimumWidth(500)
         
         # Create form layout
         layout = QFormLayout()
@@ -31,8 +31,48 @@ class ModuleDialog(QDialog):
         # Module code input
         self.code_input = QLineEdit()
         self.code_input.setPlaceholderText("e.g., SE2052")
-        self.code_input.setMaxLength(6)
+        self.code_input.setMaxLength(10)
         layout.addRow("Module Code:", self.code_input)
+        
+        # Sheet type selection
+        self.sheet_type_combo = QComboBox()
+        self.sheet_type_combo.addItems([
+            "Practical",
+            "Lab",
+            "Worksheet",
+            "Tutorial",
+            "Assignment",
+            "Exercise",
+            "Custom"
+        ])
+        self.sheet_type_combo.currentTextChanged.connect(self.on_sheet_type_changed)
+        layout.addRow("Sheet Type:", self.sheet_type_combo)
+        
+        # Custom sheet type input (hidden by default)
+        self.custom_type_input = QLineEdit()
+        self.custom_type_input.setPlaceholderText("e.g., Problem Set, Case Study")
+        self.custom_type_input.setVisible(False)
+        layout.addRow("Custom Type:", self.custom_type_input)
+        
+        # Output path selection
+        path_layout = QHBoxLayout()
+        self.path_input = QLineEdit()
+        self.path_input.setPlaceholderText("Leave empty to use default location")
+        path_layout.addWidget(self.path_input)
+        
+        browse_btn = QPushButton("Browse...")
+        browse_btn.clicked.connect(self.browse_output_path)
+        path_layout.addWidget(browse_btn)
+        
+        path_widget = QWidget()
+        path_widget.setLayout(path_layout)
+        layout.addRow("Output Path:", path_widget)
+        
+        # Info label
+        info_label = QLabel("💡 Tip: Choose a folder specific to this module for better organization")
+        info_label.setStyleSheet("color: gray; font-size: 10px; font-style: italic;")
+        info_label.setWordWrap(True)
+        layout.addRow("", info_label)
         
         # Buttons
         button_box = QDialogButtonBox(
@@ -43,11 +83,61 @@ class ModuleDialog(QDialog):
         layout.addRow(button_box)
         
         self.setLayout(layout)
+        
+        # Pre-fill if editing
+        if module_data:
+            self.load_module_data(module_data)
+    
+    def load_module_data(self, module_data):
+        """Load existing module data into form fields."""
+        self.name_input.setText(module_data.get('name', ''))
+        self.code_input.setText(module_data.get('code', ''))
+        
+        sheet_type = module_data.get('sheet_type', 'Practical')
+        index = self.sheet_type_combo.findText(sheet_type)
+        if index >= 0:
+            self.sheet_type_combo.setCurrentIndex(index)
+        
+        custom_type = module_data.get('custom_sheet_type', '')
+        if custom_type:
+            self.custom_type_input.setText(custom_type)
+        
+        output_path = module_data.get('output_path', '')
+        if output_path:
+            self.path_input.setText(output_path)
+    
+    def on_sheet_type_changed(self, text):
+        """Show/hide custom type input based on selection."""
+        is_custom = text == "Custom"
+        self.custom_type_input.setVisible(is_custom)
+        
+        # Find the custom type row and show/hide it
+        for i in range(self.layout().rowCount()):
+            label = self.layout().itemAt(i, QFormLayout.LabelRole)
+            if label and label.widget():
+                if label.widget().text() == "Custom Type:":
+                    label.widget().setVisible(is_custom)
+        
+        # Adjust dialog size
+        self.adjustSize()
+    
+    def browse_output_path(self):
+        """Open folder selection dialog."""
+        current_path = self.path_input.text() or ""
+        folder = QFileDialog.getExistingDirectory(
+            self,
+            "Select Output Folder for This Module",
+            current_path
+        )
+        if folder:
+            self.path_input.setText(folder)
     
     def validate_and_accept(self):
         """Validate inputs before accepting."""
         name = self.name_input.text().strip()
         code = self.code_input.text().strip().upper()
+        sheet_type = self.sheet_type_combo.currentText()
+        custom_type = self.custom_type_input.text().strip()
         
         # Validate module name
         is_valid, error = validate_module_name(name)
@@ -61,13 +151,30 @@ class ModuleDialog(QDialog):
             QMessageBox.warning(self, "Invalid Input", error)
             return
         
+        # Validate custom type if selected
+        if sheet_type == "Custom" and not custom_type:
+            QMessageBox.warning(
+                self, 
+                "Invalid Input", 
+                "Please enter a custom sheet type or select a predefined type"
+            )
+            return
+        
         self.accept()
     
     def get_module(self):
-        """Get the module data."""
+        """Get the module data with enhanced fields."""
+        sheet_type = self.sheet_type_combo.currentText()
+        custom_type = self.custom_type_input.text().strip() if sheet_type == "Custom" else None
+        output_path = self.path_input.text().strip() or None
+        
         return {
             'name': self.name_input.text().strip(),
-            'code': self.code_input.text().strip().upper()
+            'code': self.code_input.text().strip().upper(),
+            'sheet_type': sheet_type,
+            'custom_sheet_type': custom_type,
+            'output_path': output_path,
+            'use_zero_padding': True  # Default to zero padding
         }
 
 
@@ -164,6 +271,11 @@ class SetupWindow(QWidget):
         add_module_btn.clicked.connect(self.add_module)
         module_btn_layout.addWidget(add_module_btn)
         
+        self.edit_module_btn = QPushButton("Edit Module")
+        self.edit_module_btn.clicked.connect(self.edit_module)
+        self.edit_module_btn.setEnabled(False)
+        module_btn_layout.addWidget(self.edit_module_btn)
+        
         self.remove_module_btn = QPushButton("Remove Module")
         self.remove_module_btn.clicked.connect(self.remove_module)
         self.remove_module_btn.setEnabled(False)
@@ -233,20 +345,51 @@ class SetupWindow(QWidget):
         if dialog.exec():
             module = dialog.get_module()
             self.modules.append(module)
-            self.module_list.addItem(f"{module['name']} - {module['code']}")
+            self.update_module_list_display()
+    
+    def edit_module(self):
+        """Edit the selected module."""
+        current_row = self.module_list.currentRow()
+        if current_row >= 0:
+            module = self.modules[current_row]
+            dialog = ModuleDialog(self, module)
+            if dialog.exec():
+                updated_module = dialog.get_module()
+                self.modules[current_row] = updated_module
+                self.update_module_list_display()
     
     def remove_module(self):
         """Remove selected module."""
         current_row = self.module_list.currentRow()
         if current_row >= 0:
-            self.module_list.takeItem(current_row)
-            self.modules.pop(current_row)
+            module = self.modules[current_row]
+            reply = QMessageBox.question(
+                self,
+                "Remove Module",
+                f"Are you sure you want to remove '{module['name']}'?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if reply == QMessageBox.Yes:
+                self.module_list.takeItem(current_row)
+                self.modules.pop(current_row)
+    
+    def update_module_list_display(self):
+        """Update the module list display with enhanced info."""
+        self.module_list.clear()
+        for module in self.modules:
+            sheet_type = module.get('sheet_type', 'Practical')
+            if sheet_type == 'Custom':
+                sheet_type = module.get('custom_sheet_type', 'Custom')
+            
+            path_indicator = " 📁" if module.get('output_path') else ""
+            display_text = f"{module['name']} ({module['code']}) - {sheet_type}{path_indicator}"
+            self.module_list.addItem(display_text)
     
     def on_module_selection_changed(self):
-        """Enable/disable remove button based on selection."""
-        self.remove_module_btn.setEnabled(
-            self.module_list.currentRow() >= 0
-        )
+        """Enable/disable edit and remove buttons based on selection."""
+        has_selection = self.module_list.currentRow() >= 0
+        self.edit_module_btn.setEnabled(has_selection)
+        self.remove_module_btn.setEnabled(has_selection)
     
     def finish_setup(self):
         """Validate and save configuration."""
@@ -286,7 +429,7 @@ class SetupWindow(QWidget):
             if reply == QMessageBox.No:
                 return
         
-        # Save configuration
+        # Save configuration with enhanced module data
         self.config.save_config(name, student_id, self.modules)
         
         # Save logo if provided
