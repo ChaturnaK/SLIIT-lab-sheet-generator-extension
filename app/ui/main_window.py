@@ -1,11 +1,12 @@
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
     QPushButton, QComboBox, QSpinBox, QMessageBox, QGroupBox,
-    QFormLayout, QFileDialog, QMenu
+    QFormLayout, QFileDialog, QApplication
 )
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QAction, QPixmap
-from app.generator import generate_lab_sheet
+from app.core.template_manager import get_template_manager
+from app.core.theme_manager import ThemeManager
 from app.utils.paths import get_output_dir
 import os
 
@@ -16,14 +17,15 @@ class GeneratorThread(QThread):
     finished = Signal(str)  # Emits the output file path
     error = Signal(str)  # Emits error message
     
-    def __init__(self, student_name, student_id, module_name, module_code, 
-                 practical_number, logo_path, output_dir):
+    def __init__(self, template, student_name, student_id, module_name, module_code, 
+                 sheet_label, logo_path, output_dir):
         super().__init__()
+        self.template = template
         self.student_name = student_name
         self.student_id = student_id
         self.module_name = module_name
         self.module_code = module_code
-        self.practical_number = practical_number
+        self.sheet_label = sheet_label
         self.logo_path = logo_path
         self.output_dir = output_dir
     
@@ -34,12 +36,12 @@ class GeneratorThread(QThread):
             original_dir = os.getcwd()
             os.chdir(self.output_dir)
             
-            output_file = generate_lab_sheet(
+            output_file = self.template.generate(
                 student_name=self.student_name,
                 student_id=self.student_id,
                 module_name=self.module_name,
                 module_code=self.module_code,
-                practical_number=self.practical_number,
+                sheet_label=self.sheet_label,
                 logo_path=str(self.logo_path) if self.logo_path else None
             )
             
@@ -50,6 +52,7 @@ class GeneratorThread(QThread):
             self.finished.emit(full_path)
             
         except Exception as e:
+            os.chdir(original_dir)
             self.error.emit(str(e))
 
 
@@ -62,9 +65,14 @@ class MainWindow(QMainWindow):
         self.config_data = config.load_config()
         self.global_output_dir = self.config_data.get('global_output_path', str(get_output_dir()))
         self.generator_thread = None
+        self.theme_manager = ThemeManager()
         
-        self.setWindowTitle("Lab Sheet Generator")
-        self.setMinimumSize(700, 600)
+        # Set initial theme
+        if self.config_data:
+            self.theme_manager.set_theme(self.config_data.get('theme', 'light'))
+        
+        self.setWindowTitle("Lab Sheet Generator V2.0")
+        self.setMinimumSize(700, 650)
         
         self.init_ui()
         self.init_menu()
@@ -90,6 +98,15 @@ class MainWindow(QMainWindow):
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
         
+        # View menu (NEW in V2.0)
+        view_menu = menubar.addMenu("View")
+        
+        current_theme = self.config_data.get('theme', 'light')
+        theme_text = "Toggle Dark Mode" if current_theme == 'light' else "Toggle Light Mode"
+        self.theme_action = QAction(theme_text, self)
+        self.theme_action.triggered.connect(self.toggle_theme)
+        view_menu.addAction(self.theme_action)
+        
         # Settings menu
         settings_menu = menubar.addMenu("Settings")
         
@@ -108,6 +125,23 @@ class MainWindow(QMainWindow):
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
     
+    def toggle_theme(self):
+        """Toggle between light and dark theme."""
+        new_theme = self.theme_manager.toggle_theme()
+        
+        # Apply new theme to application
+        QApplication.instance().setStyleSheet(self.theme_manager.get_stylesheet())
+        
+        # Save preference
+        self.config.update_theme(new_theme)
+        self.config_data['theme'] = new_theme
+        
+        # Update menu text
+        if new_theme == 'dark':
+            self.theme_action.setText("Toggle Light Mode")
+        else:
+            self.theme_action.setText("Toggle Dark Mode")
+    
     def init_ui(self):
         """Initialize the user interface."""
         central_widget = QWidget()
@@ -121,7 +155,6 @@ class MainWindow(QMainWindow):
         header.setStyleSheet("""
             font-size: 24px; 
             font-weight: bold; 
-            color: #156082;
             margin: 10px;
         """)
         header.setAlignment(Qt.AlignCenter)
@@ -145,7 +178,7 @@ class MainWindow(QMainWindow):
         
         self.logo_preview = QLabel()
         self.logo_preview.setFixedSize(88, 84)
-        self.logo_preview.setStyleSheet("border: 1px solid #ccc; background: #f5f5f5;")
+        self.logo_preview.setStyleSheet("border: 1px solid #ccc;")
         self.logo_preview.setAlignment(Qt.AlignCenter)
         
         logo_path = self.config.get_logo_path()
@@ -179,8 +212,26 @@ class MainWindow(QMainWindow):
         
         # Sheet type display
         self.sheet_type_label = QLabel("Practical")
-        self.sheet_type_label.setStyleSheet("font-weight: bold; color: #156082; font-size: 12px;")
+        self.sheet_type_label.setStyleSheet("font-weight: bold; font-size: 12px;")
         generator_layout.addRow("Sheet Type:", self.sheet_type_label)
+        
+        # Template display and change button (NEW in V2.0)
+        template_layout = QHBoxLayout()
+        
+        self.template_label = QLabel("Template: Classic")
+        self.template_label.setStyleSheet("font-weight: bold; font-size: 12px;")
+        template_layout.addWidget(self.template_label)
+        
+        self.change_template_btn = QPushButton("Change Template")
+        self.change_template_btn.setProperty("styleClass", "secondary")
+        self.change_template_btn.clicked.connect(self.change_template)
+        self.change_template_btn.setEnabled(False)
+        template_layout.addWidget(self.change_template_btn)
+        
+        template_layout.addStretch()
+        template_widget = QWidget()
+        template_widget.setLayout(template_layout)
+        generator_layout.addRow("Document:", template_widget)
         
         # Sheet number
         self.sheet_spin = QSpinBox()
@@ -193,11 +244,12 @@ class MainWindow(QMainWindow):
         # Output path with browse button
         output_layout = QHBoxLayout()
         self.output_path_label = QLabel()
-        self.output_path_label.setStyleSheet("color: #333; font-size: 11px;")
+        self.output_path_label.setStyleSheet("font-size: 11px;")
         self.output_path_label.setWordWrap(True)
         output_layout.addWidget(self.output_path_label, 1)
         
         browse_output_btn = QPushButton("Browse...")
+        browse_output_btn.setProperty("styleClass", "secondary")
         browse_output_btn.setMaximumWidth(80)
         browse_output_btn.clicked.connect(self.browse_module_output_path)
         output_layout.addWidget(browse_output_btn)
@@ -209,13 +261,11 @@ class MainWindow(QMainWindow):
         # Filename preview
         self.filename_preview = QLabel()
         self.filename_preview.setStyleSheet("""
-            background-color: #f5f5f5;
             padding: 8px;
-            border: 1px solid #ddd;
-            border-radius: 3px;
+            border: 1px solid;
+            border-radius: 6px;
             font-family: 'Courier New', monospace;
             font-size: 10px;
-            color: #666;
         """)
         self.filename_preview.setWordWrap(True)
         generator_layout.addRow("Preview:", self.filename_preview)
@@ -230,22 +280,6 @@ class MainWindow(QMainWindow):
         button_layout.addStretch()
         
         self.generate_btn = QPushButton("Generate Lab Sheet")
-        self.generate_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #156082;
-                color: white;
-                padding: 12px 30px;
-                font-size: 14px;
-                font-weight: bold;
-                border-radius: 5px;
-            }
-            QPushButton:hover {
-                background-color: #1a7599;
-            }
-            QPushButton:disabled {
-                background-color: #ccc;
-            }
-        """)
         self.generate_btn.clicked.connect(self.generate_lab_sheet)
         button_layout.addWidget(self.generate_btn)
         
@@ -253,7 +287,7 @@ class MainWindow(QMainWindow):
         main_layout.addLayout(button_layout)
         
         # Status label
-        self.status_label = QLabel()
+        self.status_label = QLabel("")
         self.status_label.setAlignment(Qt.AlignCenter)
         self.status_label.setStyleSheet("font-size: 12px; padding: 10px;")
         main_layout.addWidget(self.status_label)
@@ -265,93 +299,111 @@ class MainWindow(QMainWindow):
     
     def update_student_info_display(self):
         """Update the student information display."""
-        name = self.config_data.get('student_name', 'N/A')
-        student_id = self.config_data.get('student_id', 'N/A')
-        modules_count = len(self.config_data.get('modules', []))
-        
-        info_text = f"<b>Name:</b> {name}<br><b>Student ID:</b> {student_id}<br><b>Modules:</b> {modules_count} module(s)"
-        self.student_info_label.setText(info_text)
+        if self.config_data:
+            name = self.config_data.get('student_name', 'N/A')
+            student_id = self.config_data.get('student_id', 'N/A')
+            self.student_info_label.setText(f"<b>Name:</b> {name}<br><b>ID:</b> {student_id}")
+        else:
+            self.student_info_label.setText("<i>No information available</i>")
     
     def populate_modules(self):
-        """Populate the module dropdown."""
+        """Populate the module combo box."""
         self.module_combo.clear()
-        modules = self.config_data.get('modules', [])
         
-        if not modules:
-            self.module_combo.addItem("No modules configured")
+        if not self.config_data or not self.config_data.get('modules'):
+            self.module_combo.addItem("No modules configured", None)
             self.generate_btn.setEnabled(False)
-        else:
-            for module in modules:
-                display_text = f"{module['name']} ({module['code']})"
-                self.module_combo.addItem(display_text, module)
-            self.generate_btn.setEnabled(True)
-            
-            # Trigger update for first module
-            if modules:
-                self.on_module_changed(0)
+            return
+        
+        for module in self.config_data['modules']:
+            display_text = f"{module['name']} ({module['code']})"
+            self.module_combo.addItem(display_text, module)
+        
+        self.generate_btn.setEnabled(True)
+        
+        # Trigger update for first module
+        if self.module_combo.count() > 0:
+            self.on_module_changed()
     
-    def on_module_changed(self, index):
-        """Called when module selection changes."""
-        module = self.module_combo.currentData()
-        if module:
-            # Update sheet type label
-            sheet_type = module.get('sheet_type', 'Practical')
-            if sheet_type == 'Custom':
-                sheet_type = module.get('custom_sheet_type', 'Sheet')
-            self.sheet_type_label.setText(sheet_type)
-            
-            # Update output path
-            self.update_output_path_display()
-            
-            # Update filename preview
-            self.update_filename_preview()
-    
-    def update_output_path_display(self):
-        """Update the output path display based on selected module."""
+    def on_module_changed(self):
+        """Handle module selection change."""
         module = self.module_combo.currentData()
         if not module:
             return
         
-        output_path = module.get('output_path')
-        if output_path:
-            self.output_path_label.setText(output_path)
-            self.output_path_label.setStyleSheet("color: #156082; font-weight: bold; font-size: 11px;")
-        else:
-            self.output_path_label.setText(f"{self.global_output_dir} (default)")
-            self.output_path_label.setStyleSheet("color: #666; font-size: 11px;")
-    
-    def update_filename_preview(self):
-        """Update the filename preview."""
-        module = self.module_combo.currentData()
-        if not module:
-            self.filename_preview.setText("Select a module to see preview")
-            return
-        
-        # Get sheet type and number
+        # Update sheet type
         sheet_type = module.get('sheet_type', 'Practical')
         if sheet_type == 'Custom':
             sheet_type = module.get('custom_sheet_type', 'Sheet')
+        self.sheet_type_label.setText(sheet_type)
         
-        sheet_num = self.sheet_spin.value()
-        student_id = self.config_data.get('student_id', 'UNKNOWN')
+        # Update template display (NEW in V2.0)
+        template_id = module.get('template', 'classic')
+        try:
+            manager = get_template_manager()
+            template = manager.get_template(template_id)
+            self.template_label.setText(f"Template: {template.template_name}")
+        except KeyError:
+            self.template_label.setText(f"Template: {template_id.title()}")
         
-        # Format with zero padding if enabled
-        use_padding = module.get('use_zero_padding', True)
-        num_str = f"{sheet_num:02d}" if use_padding else str(sheet_num)
+        self.change_template_btn.setEnabled(True)
         
-        # Create filename
-        filename = f"{sheet_type.replace(' ', '_')}_{num_str}_{student_id}.docx"
+        # Update output path
+        self.update_output_path_display()
         
-        self.filename_preview.setText(f"Will be saved as: {filename}")
+        # Update filename preview
+        self.update_filename_preview()
+    
+    def change_template(self):
+        """Change template for current module."""
+        from app.ui.template_selector import show_template_selector
+        
+        module = self.module_combo.currentData()
+        if not module:
+            return
+        
+        current_template = module.get('template', 'classic')
+        selected = show_template_selector(current_template, self)
+        
+        if selected and selected != current_template:
+            # Update module
+            module['template'] = selected
+            
+            # Update display
+            try:
+                manager = get_template_manager()
+                template = manager.get_template(selected)
+                self.template_label.setText(f"Template: {template.template_name}")
+            except KeyError:
+                self.template_label.setText(f"Template: {selected.title()}")
+            
+            # Save config
+            self.config.save_config(
+                self.config_data['student_name'],
+                self.config_data['student_id'],
+                self.config_data['modules'],
+                self.config_data['global_output_path'],
+                self.config_data.get('theme', 'light'),
+                self.config_data.get('default_template', 'classic')
+            )
+            
+            # Reload config
+            self.config_data = self.config.load_config()
+    
+    def update_output_path_display(self):
+        """Update the output path display."""
+        module = self.module_combo.currentData()
+        if module:
+            output_dir = module.get('output_path') or self.global_output_dir
+            self.output_path_label.setText(output_dir)
     
     def browse_module_output_path(self):
-        """Browse for output path for current module."""
+        """Browse for module-specific output path."""
         module = self.module_combo.currentData()
         if not module:
             return
         
         current_path = module.get('output_path') or self.global_output_dir
-        
         folder = QFileDialog.getExistingDirectory(
             self,
             "Select Output Folder for This Module",
@@ -359,61 +411,81 @@ class MainWindow(QMainWindow):
         )
         
         if folder:
-            # Update module data
             module['output_path'] = folder
-            
-            # Update display
-            self.update_output_path_display()
+            self.output_path_label.setText(folder)
             
             # Save config
             self.config.save_config(
                 self.config_data['student_name'],
                 self.config_data['student_id'],
                 self.config_data['modules'],
-                self.config_data.get('global_output_path')
-            )
-            
-            # Reload config
-            self.config_data = self.config.load_config()
-            
-            QMessageBox.information(
-                self,
-                "Path Updated",
-                f"Output path for {module['name']} has been updated to:\n{folder}"
+                self.config_data['global_output_path'],
+                self.config_data.get('theme', 'light'),
+                self.config_data.get('default_template', 'classic')
             )
     
-    def generate_lab_sheet(self):
-        """Generate the lab sheet document."""
-        # Check if modules exist
-        if self.module_combo.count() == 0 or self.module_combo.currentData() is None:
-            QMessageBox.warning(
-                self,
-                "No Modules",
-                "Please add modules in the configuration first."
-            )
+    def update_filename_preview(self):
+        """Update the filename preview."""
+        module = self.module_combo.currentData()
+        if not module or not self.config_data:
             return
         
-        # Get selected module
-        module = self.module_combo.currentData()
-        sheet_num = self.sheet_spin.value()
-        
-        # Determine sheet type text
+        # Build sheet label
         sheet_type = module.get('sheet_type', 'Practical')
         if sheet_type == 'Custom':
             sheet_type = module.get('custom_sheet_type', 'Sheet')
         
-        # Format number
+        sheet_num = self.sheet_spin.value()
         use_padding = module.get('use_zero_padding', True)
-        num_str = f"{sheet_num:02d}" if use_padding else str(sheet_num)
-        sheet_label = f"{sheet_type} {num_str}"
         
-        # Determine output directory
+        if use_padding:
+            sheet_label = f"{sheet_type} {sheet_num:02d}"
+        else:
+            sheet_label = f"{sheet_type} {sheet_num}"
+        
+        student_id = self.config_data['student_id']
+        filename = f"{sheet_label.replace(' ', '_')}_{student_id}.docx"
+        
+        self.filename_preview.setText(f"📄 {filename}")
+    
+    def generate_lab_sheet(self):
+        """Generate lab sheet using selected template."""
+        module = self.module_combo.currentData()
+        if not module:
+            QMessageBox.warning(self, "No Module", "Please select a module.")
+            return
+        
+        # Get template (NEW in V2.0)
+        manager = get_template_manager()
+        template_id = module.get('template', 'classic')
+        
+        try:
+            template = manager.get_template(template_id)
+        except KeyError:
+            QMessageBox.critical(
+                self, "Error",
+                f"Template '{template_id}' not found. Using Classic template."
+            )
+            template = manager.get_template('classic')
+            module['template'] = 'classic'
+        
+        # Build sheet label
+        sheet_type = module.get('sheet_type', 'Practical')
+        if sheet_type == 'Custom':
+            sheet_type = module.get('custom_sheet_type', 'Sheet')
+        
+        sheet_num = self.sheet_spin.value()
+        use_padding = module.get('use_zero_padding', True)
+        
+        if use_padding:
+            sheet_label = f"{sheet_type} {sheet_num:02d}"
+        else:
+            sheet_label = f"{sheet_type} {sheet_num}"
+        
+        # Get output directory
         output_dir = module.get('output_path') or self.global_output_dir
         
-        # Ensure output directory exists
-        os.makedirs(output_dir, exist_ok=True)
-        
-        # Get logo path
+        # Check logo
         logo_path = self.config.get_logo_path()
         if not logo_path or not logo_path.exists():
             reply = QMessageBox.question(
@@ -429,15 +501,16 @@ class MainWindow(QMainWindow):
         # Disable button and show status
         self.generate_btn.setEnabled(False)
         self.status_label.setText("Generating lab sheet...")
-        self.status_label.setStyleSheet("color: #156082; font-size: 12px; padding: 10px;")
+        self.status_label.setStyleSheet("font-size: 12px; padding: 10px;")
         
         # Create and start generator thread
         self.generator_thread = GeneratorThread(
+            template=template,
             student_name=self.config_data['student_name'],
             student_id=self.config_data['student_id'],
             module_name=module['name'],
             module_code=module['code'],
-            practical_number=sheet_label,
+            sheet_label=sheet_label,
             logo_path=logo_path,
             output_dir=output_dir
         )
@@ -461,7 +534,6 @@ class MainWindow(QMainWindow):
         )
         
         if reply == QMessageBox.Open:
-            # Open the specific folder where the file was saved
             folder_path = os.path.dirname(file_path)
             self.open_folder(folder_path)
     
@@ -515,7 +587,9 @@ class MainWindow(QMainWindow):
                 self.config_data['student_name'],
                 self.config_data['student_id'],
                 self.config_data['modules'],
-                folder
+                folder,
+                self.config_data.get('theme', 'light'),
+                self.config_data.get('default_template', 'classic')
             )
             
             # Update display if current module uses default
@@ -529,7 +603,7 @@ class MainWindow(QMainWindow):
     
     def edit_configuration(self):
         """Open setup wizard to edit configuration."""
-        from app.ui.setup_ui import SetupWindow
+        from app.ui.setup_window import SetupWindow
         
         setup_window = SetupWindow(self.config)
         
@@ -593,24 +667,24 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self,
             "About Lab Sheet Generator",
-            "<h3>Lab Sheet Generator</h3>"
-            "<p>Version 1.1.0</p>"
+            "<h3>Lab Sheet Generator V2.0.0</h3>"
             "<p>A desktop application for university students to generate "
             "lab sheet templates automatically.</p>"
+            "<p><b>New in V2.0:</b></p>"
+            "<ul>"
+            "<li>🎨 Modern Apple-like UI design</li>"
+            "<li>🌓 Light and Dark themes</li>"
+            "<li>📄 Multiple document templates</li>"
+            "<li>✨ Enhanced user experience</li>"
+            "<li>🔧 Improved configuration system</li>"
+            "</ul>"
             "<p><b>Features:</b></p>"
             "<ul>"
             "<li>Automated lab sheet generation</li>"
             "<li>Custom university logo support</li>"
             "<li>Multiple module management</li>"
-            "<li>Per-module output paths</li>"
-            "<li>Configurable sheet types (Lab, Practical, Worksheet, etc.)</li>"
+            "<li>Per-module output paths and templates</li>"
+            "<li>Configurable sheet types</li>"
             "<li>Professional document formatting</li>"
-            "</ul>"
-            "<p><b>New in v1.1:</b></p>"
-            "<ul>"
-            "<li>Per-module output path configuration</li>"
-            "<li>Customizable sheet types per module</li>"
-            "<li>Filename preview before generation</li>"
-            "<li>Enhanced module management</li>"
             "</ul>"
         )

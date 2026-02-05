@@ -9,6 +9,7 @@ from app.utils.validators import (
     validate_student_name, validate_student_id, 
     validate_module_name, validate_module_code
 )
+from app.core.template_manager import get_template_manager
 
 
 class ModuleDialog(QDialog):
@@ -54,6 +55,13 @@ class ModuleDialog(QDialog):
         self.custom_type_input.setVisible(False)
         layout.addRow("Custom Type:", self.custom_type_input)
         
+        # Template selection (NEW in V2.0)
+        self.template_combo = QComboBox()
+        manager = get_template_manager()
+        for template in manager.get_template_list():
+            self.template_combo.addItem(template['name'], template['id'])
+        layout.addRow("Template:", self.template_combo)
+        
         # Output path selection
         path_layout = QHBoxLayout()
         self.path_input = QLineEdit()
@@ -61,6 +69,7 @@ class ModuleDialog(QDialog):
         path_layout.addWidget(self.path_input)
         
         browse_btn = QPushButton("Browse...")
+        browse_btn.setProperty("styleClass", "secondary")
         browse_btn.clicked.connect(self.browse_output_path)
         path_layout.addWidget(browse_btn)
         
@@ -70,7 +79,7 @@ class ModuleDialog(QDialog):
         
         # Info label
         info_label = QLabel("💡 Tip: Choose a folder specific to this module for better organization")
-        info_label.setStyleSheet("color: gray; font-size: 10px; font-style: italic;")
+        info_label.setStyleSheet("font-size: 10px; font-style: italic;")
         info_label.setWordWrap(True)
         layout.addRow("", info_label)
         
@@ -101,6 +110,12 @@ class ModuleDialog(QDialog):
         custom_type = module_data.get('custom_sheet_type', '')
         if custom_type:
             self.custom_type_input.setText(custom_type)
+        
+        # Load template (NEW in V2.0)
+        template_id = module_data.get('template', 'classic')
+        template_index = self.template_combo.findData(template_id)
+        if template_index >= 0:
+            self.template_combo.setCurrentIndex(template_index)
         
         output_path = module_data.get('output_path', '')
         if output_path:
@@ -167,6 +182,7 @@ class ModuleDialog(QDialog):
         sheet_type = self.sheet_type_combo.currentText()
         custom_type = self.custom_type_input.text().strip() if sheet_type == "Custom" else None
         output_path = self.path_input.text().strip() or None
+        template_id = self.template_combo.currentData()  # NEW in V2.0
         
         return {
             'name': self.name_input.text().strip(),
@@ -174,7 +190,8 @@ class ModuleDialog(QDialog):
             'sheet_type': sheet_type,
             'custom_sheet_type': custom_type,
             'output_path': output_path,
-            'use_zero_padding': True  # Default to zero padding
+            'use_zero_padding': True,
+            'template': template_id  # NEW in V2.0
         }
 
 
@@ -189,8 +206,8 @@ class SetupWindow(QWidget):
         self.logo_path = None
         self.modules = []
         
-        self.setWindowTitle("Lab Sheet Generator - Setup")
-        self.setMinimumSize(600, 500)
+        self.setWindowTitle("Lab Sheet Generator V2.0 - Setup")
+        self.setMinimumSize(600, 550)
         
         self.init_ui()
     
@@ -199,13 +216,13 @@ class SetupWindow(QWidget):
         main_layout = QVBoxLayout()
         
         # Title
-        title = QLabel("Welcome to Lab Sheet Generator!")
+        title = QLabel("Welcome to Lab Sheet Generator V2.0!")
         title.setStyleSheet("font-size: 18px; font-weight: bold; margin: 10px;")
         title.setAlignment(Qt.AlignCenter)
         main_layout.addWidget(title)
         
         subtitle = QLabel("Let's set up your information")
-        subtitle.setStyleSheet("font-size: 12px; color: gray; margin-bottom: 20px;")
+        subtitle.setStyleSheet("font-size: 12px; margin-bottom: 20px;")
         subtitle.setAlignment(Qt.AlignCenter)
         main_layout.addWidget(subtitle)
         
@@ -214,36 +231,37 @@ class SetupWindow(QWidget):
         student_layout = QFormLayout()
         
         self.name_input = QLineEdit()
-        self.name_input.setPlaceholderText("e.g., NONIS P.K.D.T.")
+        self.name_input.setPlaceholderText("e.g., John Doe")
         student_layout.addRow("Full Name:", self.name_input)
         
         self.id_input = QLineEdit()
-        self.id_input.setPlaceholderText("e.g., IT23614130")
+        self.id_input.setPlaceholderText("e.g., IT12345678")
         student_layout.addRow("Student ID:", self.id_input)
         
         student_group.setLayout(student_layout)
         main_layout.addWidget(student_group)
         
         # Logo Section
-        logo_group = QGroupBox("University Logo")
-        logo_layout = QVBoxLayout()
+        logo_group = QGroupBox("University Logo (Optional)")
+        logo_layout = QHBoxLayout()
         
-        logo_btn_layout = QHBoxLayout()
-        self.logo_btn = QPushButton("Upload Logo")
-        self.logo_btn.clicked.connect(self.select_logo)
-        logo_btn_layout.addWidget(self.logo_btn)
+        logo_btn_layout = QVBoxLayout()
+        
+        select_logo_btn = QPushButton("Select Logo")
+        select_logo_btn.clicked.connect(self.select_logo)
+        logo_btn_layout.addWidget(select_logo_btn)
         
         self.logo_label = QLabel("No logo selected")
-        self.logo_label.setStyleSheet("color: gray; font-style: italic;")
+        self.logo_label.setStyleSheet("font-size: 11px;")
         logo_btn_layout.addWidget(self.logo_label)
-        logo_btn_layout.addStretch()
         
+        logo_btn_layout.addStretch()
         logo_layout.addLayout(logo_btn_layout)
         
         # Logo preview
         self.logo_preview = QLabel()
         self.logo_preview.setFixedSize(110, 105)
-        self.logo_preview.setStyleSheet("border: 1px solid #ccc; background: #f5f5f5;")
+        self.logo_preview.setStyleSheet("border: 1px solid #ccc;")
         self.logo_preview.setAlignment(Qt.AlignCenter)
         self.logo_preview.setText("Preview")
         logo_layout.addWidget(self.logo_preview)
@@ -256,7 +274,7 @@ class SetupWindow(QWidget):
         modules_layout = QVBoxLayout()
         
         modules_info = QLabel("Add your modules for this semester:")
-        modules_info.setStyleSheet("color: gray; font-size: 11px;")
+        modules_info.setStyleSheet("font-size: 11px;")
         modules_layout.addWidget(modules_info)
         
         # Module list
@@ -272,11 +290,13 @@ class SetupWindow(QWidget):
         module_btn_layout.addWidget(add_module_btn)
         
         self.edit_module_btn = QPushButton("Edit Module")
+        self.edit_module_btn.setProperty("styleClass", "secondary")
         self.edit_module_btn.clicked.connect(self.edit_module)
         self.edit_module_btn.setEnabled(False)
         module_btn_layout.addWidget(self.edit_module_btn)
         
         self.remove_module_btn = QPushButton("Remove Module")
+        self.remove_module_btn.setProperty("styleClass", "danger")
         self.remove_module_btn.clicked.connect(self.remove_module)
         self.remove_module_btn.setEnabled(False)
         module_btn_layout.addWidget(self.remove_module_btn)
@@ -294,18 +314,6 @@ class SetupWindow(QWidget):
         button_layout.addStretch()
         
         self.finish_btn = QPushButton("Finish Setup")
-        self.finish_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #156082;
-                color: white;
-                padding: 8px 20px;
-                font-weight: bold;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #1a7599;
-            }
-        """)
         self.finish_btn.clicked.connect(self.finish_setup)
         button_layout.addWidget(self.finish_btn)
         
@@ -381,8 +389,17 @@ class SetupWindow(QWidget):
             if sheet_type == 'Custom':
                 sheet_type = module.get('custom_sheet_type', 'Custom')
             
+            # Get template name (NEW in V2.0)
+            template_id = module.get('template', 'classic')
+            try:
+                manager = get_template_manager()
+                template = manager.get_template(template_id)
+                template_name = template.template_name
+            except KeyError:
+                template_name = template_id.title()
+            
             path_indicator = " 📁" if module.get('output_path') else ""
-            display_text = f"{module['name']} ({module['code']}) - {sheet_type}{path_indicator}"
+            display_text = f"{module['name']} ({module['code']}) - {sheet_type} [{template_name}]{path_indicator}"
             self.module_list.addItem(display_text)
     
     def on_module_selection_changed(self):
@@ -430,7 +447,13 @@ class SetupWindow(QWidget):
                 return
         
         # Save configuration with enhanced module data
-        self.config.save_config(name, student_id, self.modules)
+        self.config.save_config(
+            name, 
+            student_id, 
+            self.modules,
+            theme='light',  # Default theme for new users
+            default_template='classic'  # Default template
+        )
         
         # Save logo if provided
         if self.logo_path:
