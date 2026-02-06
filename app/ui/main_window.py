@@ -858,9 +858,9 @@ class MainWindow(QMainWindow):
             "lab sheet templates automatically.</p>"
             "<p style='font-size: 14px;'><b>Features:</b></p>"
             "<ul style='font-size: 14px;'>"
-            "<li>🎨 Clean, modern UI design</li>"
-            "<li>📄 Multiple document templates</li>"
-            "<li>🖼️ Template-specific logos</li>"
-            "<li>✨ Enhanced user experience</li>"
+            "<li> Clean, modern UI design</li>"
+            "<li> Multiple document templates</li>"
+            "<li> Template-specific logos</li>"
+            "<li> Enhanced user experience</li>"
             "</ul>"
         )

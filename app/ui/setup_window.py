@@ -256,7 +256,7 @@ class SetupWindow(QWidget):
         
         student_layout.addLayout(student_form)
         student_tab.setLayout(student_layout)
-        tabs.addTab(student_tab, "📋 Student Info")
+        tabs.addTab(student_tab, "Student Info")
         
         # Logos Tab (NEW!)
         logos_tab = QWidget()
@@ -322,7 +322,7 @@ class SetupWindow(QWidget):
         
         logos_layout.addStretch()
         logos_tab.setLayout(logos_layout)
-        tabs.addTab(logos_tab, "🖼️ Template Logos")
+        tabs.addTab(logos_tab, "Template Logos")
         
         # Modules Tab
         modules_tab = QWidget()
@@ -362,7 +362,7 @@ class SetupWindow(QWidget):
         modules_layout.addLayout(btn_layout)
         
         modules_tab.setLayout(modules_layout)
-        tabs.addTab(modules_tab, "📚 Modules")
+        tabs.addTab(modules_tab, "Modules")
         
         main_layout.addWidget(tabs)
         
