@@ -14,7 +14,7 @@ class Config:
     def __init__(self):
         self.config_dir = self._get_config_dir()
         self.config_file = self.config_dir / "config.json"
-        self.logo_file = self.config_dir / "logo.png"
+        self.logo_file = self.config_dir / "SLIIT.png"
         self._ensure_config_dir()
         
     def _get_config_dir(self):

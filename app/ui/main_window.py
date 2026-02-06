@@ -626,10 +626,16 @@ class MainWindow(QMainWindow):
     
     def edit_configuration(self):
         """Open setup wizard to edit configuration."""
+        print("DEBUG: edit_configuration called")  # Debug
+        
         from app.ui.setup_window import SetupWindow
         
-        setup_window = SetupWindow(self.config)
+        # CRITICAL: Pass is_first_run=False to prevent auto-close
+        print("DEBUG: Creating SetupWindow with is_first_run=False")  # Debug
+        setup_window = SetupWindow(self.config, is_first_run=False)
         
+        print("DEBUG: Pre-filling data...")  # Debug
+        # Pre-fill data BEFORE connecting signal
         setup_window.name_input.setText(self.config_data.get('student_name', ''))
         setup_window.id_input.setText(self.config_data.get('student_id', ''))
         
@@ -645,12 +651,17 @@ class MainWindow(QMainWindow):
             scaled_pixmap = pixmap.scaled(110, 105, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             setup_window.logo_preview.setPixmap(scaled_pixmap)
         
+        print("DEBUG: Defining callback...")  # Debug
+        # Define callback for when user saves
         def on_setup_complete(config_data):
+            print("DEBUG: on_setup_complete callback triggered")  # Debug
+            # Reload everything
             self.config_data = self.config.load_config()
             self.global_output_dir = self.config_data.get('global_output_path', str(get_output_dir()))
             self.update_student_info_display()
             self.populate_modules()
             
+            # Update logo
             logo_path = self.config.get_logo_path()
             if logo_path and logo_path.exists():
                 pixmap = QPixmap(str(logo_path))
@@ -659,8 +670,18 @@ class MainWindow(QMainWindow):
                 self.logo_status_label.setText("✓ Logo loaded")
                 self.logo_status_label.setStyleSheet("color: #28a745; font-weight: 600; font-size: 14px;")
         
+        # Connect signal AFTER everything is set up
+        print("DEBUG: Connecting signal...")  # Debug
         setup_window.setup_complete.connect(on_setup_complete)
+        
+        # Show the window
+        print("DEBUG: Showing window...")  # Debug
         setup_window.show()
+        
+        # CRITICAL: Keep a reference to prevent garbage collection
+        self._setup_window = setup_window
+        
+        print("DEBUG: edit_configuration complete, window should be visible")  # Debug
     
     def reset_configuration(self):
         """Reset all configuration."""
