@@ -28,6 +28,7 @@
   let panelOpen = false;
   let currentYear = new Date().getFullYear();
   let currentMonth = new Date().getMonth() + 1; // 1-indexed
+  let selectedCourseFilter = "All"; // Active course filter
   let cachedResults = {};
   let cacheMeta = {};
   let isLoading = false;
@@ -341,6 +342,10 @@
       result.moduleName = crumbTexts[crumbTexts.length - 2] || "";
     }
 
+    // Extract short course code, e.g. "SE3032" from "SE3032 - Software Engineering"
+    const codeMatch = result.moduleName.match(/^([A-Z]{2,4}\s?\d{3,4})/i);
+    result.courseCode = codeMatch ? codeMatch[1].trim() : result.moduleName.trim();
+
     // ---- Assignment name ----
     // Prioritize specific selectors to avoid matching sr-only "Blocks" h2
     const heading =
@@ -587,6 +592,8 @@
         </button>
       </div>
       <div class="cw-stats" id="cw-stats"></div>
+      <div class="cw-filters" id="cw-filters" style="display: none;"></div>
+      <div class="cw-pill-tooltip" id="cw-pill-tooltip"></div>
       <div class="cw-submissions-list" id="cw-submissions-list">
         <div class="cw-empty">
           <div class="cw-empty-icon">📄</div>
@@ -603,6 +610,7 @@
         currentMonth = 12;
         currentYear--;
       }
+      selectedCourseFilter = "All"; // Reset filter on month change
       updateMonthLabel();
       loadCurrentMonth();
     });
@@ -613,6 +621,7 @@
         currentMonth = 1;
         currentYear++;
       }
+      selectedCourseFilter = "All"; // Reset filter on month change
       updateMonthLabel();
       loadCurrentMonth();
     });
@@ -688,9 +697,10 @@
     const results = cachedResults[cacheKey];
     const list = document.getElementById("cw-submissions-list");
     const stats = document.getElementById("cw-stats");
+    const filtersContainer = document.getElementById("cw-filters");
     const syncMessage = getSyncMessage(cacheKey);
 
-    if (!list || !stats) return;
+    if (!list || !stats || !filtersContainer) return;
 
     // Clean up existing download-all bar to prevent duplicates
     const existingDlBar = document.querySelector('.cw-download-all-bar');
@@ -700,6 +710,7 @@
 
     if (!results || results.length === 0) {
       stats.innerHTML = syncMessage ? `<div class="cw-cache-note">${escapeHtml(syncMessage)}</div>` : "";
+      filtersContainer.style.display = 'none';
       list.innerHTML = `
         <div class="cw-empty">
           <div class="cw-empty-icon">📭</div>
@@ -709,23 +720,90 @@
       return;
     }
 
-    // Compute stats
-    const submitted = results.filter(
+    // Extract unique course modules
+    const courseNames = new Set();
+    const courseTitles = new Map(); // Store full name for tooltip mappings
+    results.forEach(r => {
+      // Fallback to moduleName if courseCode is missing from older caches
+      const code = r.courseCode || r.moduleName;
+      if (code && code.trim() !== '') {
+        const trimmedCode = code.trim();
+        courseNames.add(trimmedCode);
+        if (!courseTitles.has(trimmedCode) && r.moduleName) {
+          courseTitles.set(trimmedCode, r.moduleName.trim());
+        }
+      }
+    });
+
+    const uniqueCourses = Array.from(courseNames).sort();
+
+    // Reset filter if current choice isn't in this month's courses
+    if (selectedCourseFilter !== "All" && !uniqueCourses.includes(selectedCourseFilter)) {
+      selectedCourseFilter = "All";
+    }
+
+    // Render Filters
+    if (uniqueCourses.length > 1) {
+      filtersContainer.style.display = 'flex';
+      let filtersHtml = `<button class="cw-filter-pill ${selectedCourseFilter === 'All' ? 'active' : ''}" data-course="All" data-tooltip="All Submissions">All</button>`;
+      uniqueCourses.forEach(course => {
+        const fullName = courseTitles.get(course) || course;
+        filtersHtml += `<button class="cw-filter-pill ${selectedCourseFilter === course ? 'active' : ''}" data-course="${escapeHtml(course)}" data-tooltip="${escapeHtml(fullName)}">${escapeHtml(course)}</button>`;
+      });
+      filtersContainer.innerHTML = filtersHtml;
+
+      filtersContainer.querySelectorAll('.cw-filter-pill').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          selectedCourseFilter = e.target.getAttribute('data-course');
+          const tooltip = document.getElementById('cw-pill-tooltip');
+          if (tooltip) tooltip.classList.remove('visible');
+          renderPanel(); // Re-render logic to apply filter
+        });
+
+        btn.addEventListener('mouseenter', (e) => {
+          const tooltip = document.getElementById('cw-pill-tooltip');
+          if (tooltip) {
+            tooltip.textContent = e.target.getAttribute('data-tooltip');
+            tooltip.classList.add('visible');
+            const rect = e.target.getBoundingClientRect();
+            const panelRect = document.getElementById('cw-labsheet-panel').getBoundingClientRect();
+
+            tooltip.style.left = (rect.left - panelRect.left + (rect.width / 2)) + 'px';
+            tooltip.style.top = (rect.top - panelRect.top - 8) + 'px';
+          }
+        });
+
+        btn.addEventListener('mouseleave', () => {
+          const tooltip = document.getElementById('cw-pill-tooltip');
+          if (tooltip) {
+            tooltip.classList.remove('visible');
+          }
+        });
+      });
+    } else {
+      filtersContainer.style.display = 'none';
+    }
+
+    // Apply Filter
+    const filteredResults = selectedCourseFilter === "All" ? results : results.filter(r => (r.courseCode || r.moduleName).trim() === selectedCourseFilter);
+
+    // Compute stats using filtered results
+    const submitted = filteredResults.filter(
       (r) => r.submissionStatus && r.submissionStatus.toLowerCase().includes("submitted")
     ).length;
-    const noAttempt = results.filter(
+    const noAttempt = filteredResults.filter(
       (r) =>
         !r.submissionStatus ||
         r.submissionStatus.toLowerCase().includes("no attempt") ||
         r.submissionStatus.toLowerCase().includes("no submission")
     ).length;
-    const overdue = results.filter(
+    const overdue = filteredResults.filter(
       (r) => r.timeRemaining && r.timeRemaining.toLowerCase().includes("overdue")
     ).length;
 
     stats.innerHTML = `
       <div class="cw-stat-card total">
-        <div class="cw-stat-value">${results.length}</div>
+        <div class="cw-stat-value">${filteredResults.length}</div>
         <div class="cw-stat-label">Total</div>
       </div>
       <div class="cw-stat-card submitted">
@@ -743,8 +821,9 @@
       ${syncMessage ? `<div class="cw-cache-note">${escapeHtml(syncMessage)}</div>` : ""}
     `;
 
-    // Store results globally for the template generator
-    window.__cwLabResults = results;
+    // Store ALL results globally for the template generator (we probably still want to download all pending for the month or conditionally the selected)
+    // Actually, users might prefer downloading only for the filtered list
+    window.__cwLabResults = filteredResults;
 
     // Add download all pending button if there are pending items
     if (noAttempt + overdue > 0 && window.__labTemplateGenerator) {
@@ -761,7 +840,7 @@
     }
 
     // Sort: pending/no-attempt first, then by due date
-    const sorted = [...results].sort((a, b) => {
+    const sorted = [...filteredResults].sort((a, b) => {
       const aSubmitted = a.submissionStatus && a.submissionStatus.toLowerCase().includes("submitted");
       const bSubmitted = b.submissionStatus && b.submissionStatus.toLowerCase().includes("submitted");
       if (aSubmitted !== bSubmitted) return aSubmitted ? 1 : -1;
