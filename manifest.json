@@ -8,8 +8,15 @@
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "labsheet-tracker@sliit.lk"
+    }
+  },
   "background": {
-    "service_worker": "background.js"
+    "scripts": [
+      "background.js"
+    ]
   },
   "content_scripts": [
     {
@@ -29,7 +36,6 @@
   ],
   "permissions": [
     "activeTab",
-    "offscreen",
     "downloads",
     "storage"
   ]

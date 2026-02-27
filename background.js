@@ -1,4 +1,4 @@
-// Background service worker for CourseWeb LabSheet Tracker
+// Background script for CourseWeb LabSheet Tracker (Firefox compatibility)
 // Uses chrome.downloads API so filenames/extensions are preserved reliably.
 
 function buildSafeDocxName(fileName) {
@@ -8,58 +8,46 @@ function buildSafeDocxName(fileName) {
     return sanitized.toLowerCase().endsWith(".docx") ? sanitized : `${sanitized}.docx`;
 }
 
-let creatingOffscreen;
-async function setupOffscreenDocument(path) {
-    const url = chrome.runtime.getURL(path);
-    const existingContexts = await chrome.runtime.getContexts({
-        contextTypes: ['OFFSCREEN_DOCUMENT'],
-        documentUrls: [url]
-    });
-
-    if (existingContexts.length > 0) {
-        return;
-    }
-
-    if (creatingOffscreen) {
-        await creatingOffscreen;
-    } else {
-        creatingOffscreen = chrome.offscreen.createDocument({
-            url: path,
-            reasons: ['BLOBS'],
-            justification: 'To use Blob URLs to trigger DOCX file downloads with correct filenames'
-        });
-        await creatingOffscreen;
-        creatingOffscreen = null;
-    }
-}
-
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action === "downloadDocx") {
-        const safeFileName = buildSafeDocxName(message.fileName);
+        try {
+            const safeFileName = buildSafeDocxName(message.fileName);
 
-        // Forward to the offscreen document instead of using chrome.downloads
-        setupOffscreenDocument("offscreen.html").then(() => {
-            chrome.runtime.sendMessage(
+            // In Firefox MV3, background scripts have DOM access so we can decode and create Blob URLs directly
+            const byteCharacters = atob(message.base64);
+            const byteArray = new Uint8Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteArray[i] = byteCharacters.charCodeAt(i);
+            }
+
+            const blob = new Blob([byteArray], {
+                type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            });
+
+            const url = URL.createObjectURL(blob);
+
+            chrome.downloads.download(
                 {
-                    target: "offscreen",
-                    action: "createBlobAndDownload",
-                    base64: message.base64,
-                    fileName: safeFileName
+                    url: url,
+                    filename: safeFileName,
+                    saveAs: false
                 },
-                (response) => {
+                (downloadId) => {
+                    setTimeout(() => URL.revokeObjectURL(url), 10000);
+
                     if (chrome.runtime.lastError) {
-                        console.error("[LabSheet] Offscreen message error:", chrome.runtime.lastError.message);
+                        console.error("[LabSheet] Background download error:", chrome.runtime.lastError.message);
                         sendResponse({ success: false, error: chrome.runtime.lastError.message });
                         return;
                     }
-                    sendResponse(response);
+                    sendResponse({ success: true, downloadId });
                 }
             );
-        }).catch((err) => {
-            console.error("[LabSheet] Offscreen creation error:", err);
-            sendResponse({ success: false, error: err.message });
-        });
 
-        return true; // Keep message channel open for async response
+            return true; // Keep message channel open for async response
+        } catch (err) {
+            console.error("[LabSheet] Error processing download in background:", err);
+            sendResponse({ success: false, error: err.message });
+        }
     }
 });
